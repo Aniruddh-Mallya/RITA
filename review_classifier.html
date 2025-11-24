@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Classifier (Pro UI + Jira)</title>
+    <!-- 1. Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 2. React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- 3. Babel (for JSX) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 4. SheetJS (Excel Parser) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        /* Simple spinner animation */
+        .spinner {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen font-sans">
+
+    <!-- The React App Mount Point -->
+    <div id="root" class="w-full max-w-4xl p-4"></div>
+
+    <!-- The React App (in Babel) -->
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- API Constants ---
+        const API_BASE_URL = "http://localhost:8001";
+        const SUBMIT_JOB_URL = `${API_BASE_URL}/submit_job`;
+        const CHECK_STATUS_URL = `${API_BASE_URL}/check_status`;
+        const CANCEL_JOB_URL = `${API_BASE_URL}/cancel_job`;
+        const CONFIG_OPTIONS_URL = `${API_BASE_URL}/config_options`;
+        const GENERATE_SRS_URL = `${API_BASE_URL}/generate_srs`;
+        const GENERATE_USER_STORIES_URL = `${API_BASE_URL}/generate_user_stories`;
+        const SYNC_JIRA_URL = `${API_BASE_URL}/sync_jira`; // NEW CONSTANT
+
+        // --- Main App Component ---
+        function App() {
+            // State for the entire app's workflow
+            const [mode, setMode] = useState(null); // 'FR' or 'NFR'
+            
+            const [llmChoice, setLlmChoice] = useState('');
+            const [promptStrategy, setPromptStrategy] = useState('');
+
+            const [file, setFile] = useState(null); // The uploaded File object
+            const [fileType, setFileType] = useState(null); // 'text' or 'excel'
+            const [headers, setHeaders] = useState([]); // For Excel headers
+            const [filePreview, setFilePreview] = useState(null); // string[]
+            
+            // State for text/csv parsing
+            const [delimiter, setDelimiter] = useState(',');
+            const [columnIndex, setColumnIndex] = useState(1);
+            
+            // State for excel parsing
+            const [selectedColumn, setSelectedColumn] = useState('');
+            
+            // State for the "Processing" view
+            const [jobId, setJobId] = useState(null);
+            const [jobStatus, setJobStatus] = useState(null); // 'QUEUED', 'RUNNING', 'COMPLETED'
+            const [jobProgress, setJobProgress] = useState({ completed: 0, total: 0 });
+            
+            // State for the "Results" view
+            const [results, setResults] = useState(null);
+            const [appError, setAppError] = useState(null);
+            
+            // State for config options fetched from API
+            const [configOptions, setConfigOptions] = useState(null);
+
+            // State for the SRS Modal and Results
+            const [showSrsModal, setShowSrsModal] = useState(false);
+            const [srsLlmChoice, setSrsLlmChoice] = useState('');
+            const [srsPromptStrategy, setSrsPromptStrategy] = useState('');
+            const [srsIsLoading, setSrsIsLoading] = useState(false);
+            const [srsResult, setSrsResult] = useState(null); // Stores the final SRS text
+            const [srsJobId, setSrsJobId] = useState(null);
+
+            // State for the User Story Modal and Results
+            const [showUsModal, setShowUsModal] = useState(false);
+            const [usLlmChoice, setUsLlmChoice] = useState('');
+            const [usPromptStrategy, setUsPromptStrategy] = useState('');
+            const [usIsLoading, setUsIsLoading] = useState(false);
+            const [usResult, setUsResult] = useState(null); // Stores an array of story objects
+            const [usJobId, setUsJobId] = useState(null);
+
+            // --- NEW: Jira State ---
+            const [showJiraModal, setShowJiraModal] = useState(false);
+            const [jiraDomain, setJiraDomain] = useState('');
+            const [jiraEmail, setJiraEmail] = useState('');
+            const [jiraToken, setJiraToken] = useState('');
+            const [jiraProject, setJiraProject] = useState('');
+            const [jiraJobId, setJiraJobId] = useState(null);
+            const [jiraStatus, setJiraStatus] = useState(null);
+            const [jiraProgress, setJiraProgress] = useState({ completed: 0, total: 0 });
+
+            const [clientLog, setClientLog] = useState([]);
+            const logContainerRef = useRef(null);
+
+
+            // --- Log Helper ---
+            const log = (message) => {
+                console.log(message);
+                setClientLog(prev => [...prev, message]);
+            };
+
+            // --- Auto-Scroll Log ---
+            useEffect(() => {
+                if (logContainerRef.current) {
+                    logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+                }
+            }, [clientLog]);
+
+            // --- Fetch Config Options on Load ---
+            useEffect(() => {
+                const fetchConfig = async () => {
+                    try {
+                        log("[CLIENT] Fetching config options from API...");
+                        const response = await fetch(CONFIG_OPTIONS_URL);
+                        if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                        const data = await response.json();
+                        setConfigOptions(data);
+                        log("[CLIENT] Successfully loaded config options.");
+                    } catch (err) {
+                        log(`[CLIENT-ERROR] Failed to fetch config: ${err.message}`);
+                        setAppError("Could not connect to the API server. Please ensure 'api.py' is running and refresh the page.");
+                    }
+                };
+                fetchConfig();
+            }, []);
+
+
+            // --- Core App Logic ---
+
+            // Step 1: Handle File Selection & Parsing
+            const handleFileChange = async (e) => {
+                const selectedFile = e.target.files[0];
+                if (!selectedFile) return;
+
+                setFile(selectedFile);
+                setAppError(null);
+                setHeaders([]);
+                setSelectedColumn('');
+                setFilePreview(null); // Clear previous preview
+
+                const fileExt = selectedFile.name.split('.').pop().toLowerCase();
+                
+                if (fileExt === 'xls' || fileExt === 'xlsx') {
+                    setFileType('excel');
+                    try {
+                        const { headers, preview } = await parseExcelPreview(selectedFile);
+                        setHeaders(headers);
+                        setFilePreview(preview);
+                        if (headers.length > 0) {
+                            setSelectedColumn(headers[0]); 
+                        }
+                    } catch (err) {
+                        log(`[CLIENT-ERROR] Failed to parse Excel preview: ${err.message}`);
+                        setAppError(`Failed to read the Excel file. Error: ${err.message}`);
+                    }
+                } else if (fileExt === 'txt' || fileExt === 'csv') {
+                    setFileType('text');
+                    try {
+                        const preview = await parseTextPreview(selectedFile);
+                        setFilePreview(preview);
+                    } catch (err) {
+                         log(`[CLIENT-ERROR] Failed to parse text preview: ${err.message}`);
+                        setAppError(`Failed to read the text file. Error: ${err.message}`);
+                    }
+                } else {
+                    setAppError('Invalid file type. Please upload .txt, .csv, .xls, or .xlsx');
+                    setFile(null);
+                }
+            };
+
+            // Step 2: User clicks "Process Reviews"
+            const handleProcessClick = async () => {
+                if (!file) {
+                    setAppError('No file selected.');
+                    return;
+                }
+                
+                let reviews = [];
+                try {
+                    if (fileType === 'excel') {
+                        if (!selectedColumn) {
+                            setAppError('Please select a review column.');
+                            return;
+                        }
+                        reviews = await parseExcelFile(file, selectedColumn);
+                    } else { 
+                        reviews = await parseTextFile(file, delimiter, columnIndex);
+                    }
+                } catch (err) {
+                    log(`[CLIENT-ERROR] Failed to parse file: ${err.message}`);
+                    setAppError(`Could not parse the file. Error: ${err.message}`);
+                    return;
+                }
+
+                if (reviews.length === 0) {
+                    setAppError('No reviews found in the file. Check your parsing settings.');
+                    return;
+                }
+
+                log(`[CLIENT] Successfully parsed ${reviews.length} reviews.`);
+                submitJob(reviews);
+            };
+
+            // Step 3: Submit the job to the backend
+            const submitJob = async (reviews) => {
+                log(`[CLIENT] Submitting ${reviews.length} reviews to ${SUBMIT_JOB_URL}...`);
+                setJobStatus('SUBMITTING');
+                setResults(null);
+                setSrsResult(null);
+                setUsResult(null);
+                
+                try {
+                    const payload = { 
+                        reviews: reviews,
+                        requirement_type: mode,
+                        llm_choice: llmChoice,
+                        prompt_strategy: promptStrategy
+                    };
+                    
+                    log(`[CLIENT] Payload: ${JSON.stringify(payload, null, 2)}`);
+
+                    const response = await fetch(SUBMIT_JOB_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                    
+                    const data = await response.json();
+                    setJobId(data.job_id);
+                    setJobStatus(data.status);
+                    setJobProgress({ completed: 0, total: data.total_reviews }); 
+                    log(`[CLIENT] Job submitted! Job ID: ${data.job_id}. Waiting for worker...`);
+
+                } catch (err) {
+                    log(`[CLIENT-ERROR] Failed to submit job: ${err.message}`);
+                    setAppError(`Failed to submit job: ${err.message}. Please check the 'api.py' server logs.`);
+                    setJobStatus(null);
+                }
+            };
+
+            // Step 4: Cancel the running job
+            const handleCancelJob = async () => {
+                if (!jobId) return;
+                log(`[CLIENT] Sending CANCEL request for job ${jobId}...`);
+                try {
+                    await fetch(CANCEL_JOB_URL, { method: 'POST' });
+                    log(`[CLIENT] Cancel request sent.`);
+                } catch (err) {
+                    log(`[CLIENT-ERROR] Error: Failed to send cancel request. ${err.message}`);
+                }
+            };
+
+            // Step 5: Reset the entire app
+            const resetState = () => {
+                setMode(null);
+                setLlmChoice('');
+                setPromptStrategy('');
+                setFile(null);
+                setFileType(null);
+                setHeaders([]);
+                setFilePreview(null); // Clear previous preview
+                setSelectedColumn('');
+                setDelimiter(',');
+                setColumnIndex(1);
+                setJobId(null);
+                setJobStatus(null);
+                setJobProgress({ completed: 0, total: 0 });
+                setResults(null);
+                setAppError(null);
+                setClientLog([]);
+                
+                // Reset SRS state
+                setShowSrsModal(false);
+                setSrsLlmChoice('');
+                setSrsPromptStrategy('');
+                setSrsIsLoading(false);
+                setSrsResult(null);
+                setSrsJobId(null);
+                // Reset User Story state
+                setShowUsModal(false);
+                setUsLlmChoice('');
+                setUsPromptStrategy('');
+                setUsIsLoading(false);
+                setUsResult(null);
+                setUsJobId(null);
+                // Reset Jira
+                setShowJiraModal(false);
+                setJiraJobId(null);
+            };
+            
+            const handleDownloadResults = () => {
+                if (!results) return;
+                log("[CLIENT] Generating results CSV for download...");
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += "Classification,Review\r\n";
+                results.original.forEach((review, index) => {
+                    const classification = results.classifications[index];
+                    const safeReview = '"' + String(review).replace(/"/g, '""') + '"'; 
+                    csvContent += `${classification},${safeReview}\r\n`;
+                });
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "classification_results.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                log("[CLIENT] Results CSV download triggered.");
+            };
+
+
+            // --- Polling Effect (Main Classification) ---
+            useEffect(() => {
+                // Keep polling until COMPLETED and results are set, or FAILED
+                if (!jobId || (jobStatus === 'COMPLETED' && results) || jobStatus === 'FAILED') {
+                    return;
+                }
+
+                const intervalId = setInterval(async () => {
+                    if (!jobId) return;
+                    try {
+                        const response = await fetch(`${CHECK_STATUS_URL}?job_id=${jobId}`);
+                        if (response.status === 404) {
+                            log(`[CLIENT] Job ${jobId} not found. Resetting.`);
+                            resetState();
+                            return;
+                        }
+                        const data = await response.json();
+
+                        setJobStatus(data.status);
+                        // Update progress regardless of status (e.g., if it jumps from QUEUED to COMPLETED quickly)
+                        setJobProgress({ completed: data.completed, total: data.total });
+                        
+                        // LOGGING FIX: Log progress if count increased
+                        if (data.completed > jobProgress.completed) {
+                             log(`[CLIENT] Processed review ${data.completed} of ${data.total}`);
+                        }
+
+                        if (data.status === 'COMPLETED') {
+                            log(`[CLIENT] Job ${data.job_id} COMPLETED. Fetching results...`);
+                            setResults({
+                                original: data.original_reviews,
+                                classifications: data.results
+                            });
+                        } else if (data.status === 'FAILED') {
+                            log(`[CLIENT-ERROR] Job ${data.job_id} FAILED.`);
+                            setAppError("The backend worker failed to process the job.");
+                        }
+                    } catch (err) {
+                        log(`[CLIENT-ERROR] Status check failed: ${err.message}`);
+                    }
+                }, 500); // CHANGE: Reduced to 500ms for smoother updates
+
+                return () => clearInterval(intervalId);
+            }, [jobId, jobStatus, results, jobProgress.completed]); // Added jobProgress.completed to dependency array
+
+            
+            // --- Polling Effect for SRS ---
+            useEffect(() => {
+                if (!srsJobId) return;
+
+                const intervalId = setInterval(async () => {
+                    try {
+                        const response = await fetch(`${CHECK_STATUS_URL}?job_id=${srsJobId}`);
+                        const data = await response.json();
+                        
+                        if (data.status === 'COMPLETED') {
+                            log(`[CLIENT] SRS Job ${srsJobId} COMPLETED.`);
+                            const text = data.results && data.results[0] ? data.results[0] : "No result generated.";
+                            setSrsResult(text);
+                            setSrsIsLoading(false);
+                            setSrsJobId(null);
+                        } else if (data.status === 'FAILED') {
+                            setAppError("SRS Generation Failed in backend.");
+                            setSrsIsLoading(false);
+                            setSrsJobId(null);
+                        }
+                    } catch (err) {
+                        log(`[CLIENT-ERROR] SRS status check failed: ${err.message}`);
+                    }
+                }, 500);
+                return () => clearInterval(intervalId);
+            }, [srsJobId]);
+
+
+            // --- Polling Effect for User Stories ---
+            useEffect(() => {
+                if (!usJobId) return;
+
+                const intervalId = setInterval(async () => {
+                    try {
+                        const response = await fetch(`${CHECK_STATUS_URL}?job_id=${usJobId}`);
+                        const data = await response.json();
+                        
+                        if (data.status === 'COMPLETED') {
+                             log(`[CLIENT] User Story Job ${usJobId} COMPLETED.`);
+                             const rawText = data.results && data.results[0] ? data.results[0] : "";
+                             parseAndSetUserStories(rawText);
+                             setUsIsLoading(false);
+                             setUsJobId(null);
+                        } else if (data.status === 'FAILED') {
+                            setAppError("User Story Generation Failed in backend.");
+                            setUsIsLoading(false);
+                            setUsJobId(null);
+                        }
+                    } catch (err) {
+                        log(`[CLIENT-ERROR] US status check failed: ${err.message}`);
+                    }
+                }, 500);
+                return () => clearInterval(intervalId);
+            }, [usJobId]);
+
+            // --- NEW: Polling Effect for Jira ---
+            useEffect(() => {
+                if (!jiraJobId) return;
+                const intervalId = setInterval(async () => {
+                    try {
+                        const response = await fetch(`${CHECK_STATUS_URL}?job_id=${jiraJobId}`);
+                        const data = await response.json();
+                        setJiraProgress({ completed: data.completed, total: data.total });
+
+                        if (data.status === 'COMPLETED') {
+                            log(`[CLIENT] Jira Sync Finished.`);
+                            setJiraStatus('COMPLETED');
+                            setJiraJobId(null);
+                            // Reset status message after 3s
+                            setTimeout(() => setJiraStatus(null), 3000);
+                        } else if (data.status === 'FAILED') {
+                            setAppError("Jira Sync Failed.");
+                            setJiraJobId(null);
+                        }
+                    } catch (err) {
+                        log(`[CLIENT-ERROR] Jira status check failed: ${err.message}`);
+                    }
+                }, 1000);
+                return () => clearInterval(intervalId);
+            }, [jiraJobId]);
+
+
+            // --- SRS Handlers ---
+            const handleOpenSrsModal = () => {
+                if (!configOptions) return;
+                setSrsLlmChoice(llmChoice); 
+                const defaultSrsStrategy = configOptions?.srs_strategies[0] || '';
+                setSrsPromptStrategy(configOptions?.srs_strategies.includes(promptStrategy) ? promptStrategy : defaultSrsStrategy);
+                setShowSrsModal(true);
+            };
+
+            const handleSubmitSrs = async () => {
+                if (!srsLlmChoice || !srsPromptStrategy) return;
+                log("[CLIENT] Submitting SRS generation request (Async)...");
+                setSrsIsLoading(true);
+                setShowSrsModal(false);
+                setAppError(null);
+
+                const formattedInput = results.original.map((review, index) => {
+                    const label = results.classifications[index];
+                    return `- ${label}: ${review}`;
+                }).join('\n');
+
+                try {
+                    const payload = {
+                        reviews_input: formattedInput,
+                        llm_choice: srsLlmChoice,
+                        prompt_strategy: srsPromptStrategy
+                    };
+                    const response = await fetch(GENERATE_SRS_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                    
+                    const data = await response.json();
+                    setSrsJobId(data.job_id);
+                    log(`[CLIENT] SRS Job ID: ${data.job_id}. Polling started...`);
+
+                } catch (err) {
+                    log(`[CLIENT-ERROR] SRS submission failed: ${err.message}`);
+                    setAppError(`SRS submission failed: ${err.message}`);
+                    setSrsIsLoading(false);
+                }
+            };
+            
+            // --- User Story Handlers ---
+            const handleOpenUsModal = () => {
+                if (!configOptions) return;
+                setUsLlmChoice(llmChoice);
+                const defaultUsStrategy = configOptions?.user_story_strategies.includes('json-structured') 
+                    ? 'json-structured' : (configOptions?.user_story_strategies[0] || '');
+                setUsPromptStrategy(defaultUsStrategy);
+                setShowUsModal(true);
+            };
+
+            const handleSubmitUs = async () => {
+                if (!usLlmChoice || !usPromptStrategy) return;
+                log("[CLIENT] Submitting User Story generation request (Async)...");
+                setUsIsLoading(true);
+                setShowUsModal(false);
+                setAppError(null);
+
+                const formattedInput = results.original.map((review, index) => {
+                    const label = results.classifications[index];
+                    return `- ${label}: ${review}`;
+                }).join('\n');
+
+                try {
+                    const payload = {
+                        reviews_input: formattedInput,
+                        llm_choice: usLlmChoice,
+                        prompt_strategy: usPromptStrategy
+                    };
+                    const response = await fetch(GENERATE_USER_STORIES_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                    
+                    const data = await response.json();
+                    setUsJobId(data.job_id);
+                    log(`[CLIENT] US Job ID: ${data.job_id}. Polling started...`);
+
+                } catch (err) {
+                    log(`[CLIENT-ERROR] US submission failed: ${err.message}`);
+                    setAppError(`User Story submission failed: ${err.message}`);
+                    setUsIsLoading(false);
+                }
+            };
+            
+            // --- NEW: Jira Handlers ---
+            const handleSubmitJira = async () => {
+                const selectedStories = usResult.filter(i => i.isSelected).map(i => i.story);
+                if (selectedStories.length === 0) return;
+
+                setShowJiraModal(false);
+                setAppError(null);
+                log("[CLIENT] Sending stories to Jira...");
+
+                try {
+                    const payload = {
+                        stories: selectedStories,
+                        jira_domain: jiraDomain,
+                        jira_email: jiraEmail,
+                        jira_token: jiraToken,
+                        project_key: jiraProject
+                    };
+                    const response = await fetch(SYNC_JIRA_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                    const data = await response.json();
+                    setJiraJobId(data.job_id);
+                    log(`[CLIENT] Jira Sync Job ID: ${data.job_id} started.`);
+                } catch (err) {
+                    setAppError(`Jira Sync Failed: ${err.message}`);
+                }
+            };
+
+            
+            const parseAndSetUserStories = (text) => {
+                try {
+                    const parsedData = JSON.parse(text);
+                    if (parsedData.stories && Array.isArray(parsedData.stories)) {
+                        const storiesWithSelection = parsedData.stories.map((story, index) => ({
+                            id: story.id || (index + 1),
+                            story: story.story,
+                            isSelected: true
+                        }));
+                        setUsResult(storiesWithSelection);
+                    } else { throw new Error("Invalid JSON"); }
+                } catch (e) {
+                    const stories = text.split('\n').filter(s => s.trim() !== '');
+                    setUsResult(stories.map((s, index) => ({
+                        id: index + 1,
+                        story: s.replace(/^-/, '').trim(),
+                        isSelected: true
+                    })));
+                }
+            };
+
+            const handleToggleUsSelection = (id) => {
+                setUsResult(prev => prev.map(item => item.id === id ? { ...item, isSelected: !item.isSelected } : item));
+            };
+            const handleUsSelectAll = () => setUsResult(prev => prev.map(item => ({ ...item, isSelected: true })));
+            const handleUsDeselectAll = () => setUsResult(prev => prev.map(item => ({ ...item, isSelected: false })));
+
+            // --- UI Rendering ---
+            
+            const renderSpinner = (text = "Loading...") => (
+                <div className="flex flex-col items-center justify-center p-12">
+                    <div className="spinner w-12 h-12 rounded-full border-4 border-gray-700 border-t-blue-500 mb-4"></div>
+                    <p className="text-lg text-gray-400">{text}</p>
+                </div>
+            );
+            
+            const renderFilePreview = () => {
+                if (!filePreview) {
+                    if (file) return renderSpinner("Generating preview...");
+                    return null;
+                }
+                return (
+                    <div className="bg-gray-700 p-4 rounded-lg animate-fade-in mb-6">
+                        <h3 className="text-lg font-semibold text-white mb-3">File Preview (First 5 Lines)</h3>
+                        <pre className="bg-gray-900 p-3 rounded-md text-xs text-gray-400 overflow-x-auto">
+                            {filePreview.join('\n')}
+                        </pre>
+                    </div>
+                );
+            };
+
+            const renderModeSelector = () => (
+                <div className="bg-gray-800 p-8 rounded-lg shadow-xl animate-fade-in">
+                    <h1 className="text-3xl font-bold text-center text-white mb-6">Requirement Classifier</h1>
+                    <p className="text-lg text-gray-400 text-center mb-8">What type of requirements are you processing today?</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <button onClick={() => setMode('FR')} className="p-8 bg-blue-600 text-white rounded-lg shadow-lg hover:bg-blue-700 transition-all transform hover:scale-105">
+                            <h2 className="text-2xl font-semibold mb-2">Functional (FR)</h2>
+                            <p className="text-blue-100">e.g., "Add a save button"</p>
+                        </button>
+                        <button onClick={() => setMode('NFR')} className="p-8 bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition-all transform hover:scale-105">
+                            <h2 className="text-2xl font-semibold mb-2">Non-Functional (NFR)</h2>
+                            <p className="text-green-100">e.g., "The app is too slow"</p>
+                        </button>
+                    </div>
+                </div>
+            );
+
+            const renderModelOptions = () => (
+                <div className="bg-gray-700 p-4 rounded-lg mb-6 animate-fade-in">
+                    <h3 className="text-lg font-semibold text-white mb-3">Model Configuration</h3>
+                    {!configOptions ? renderSpinner("Loading model options...") : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">LLM Choice</label>
+                            <select value={llmChoice} onChange={(e) => setLlmChoice(e.target.value)} className="bg-gray-800 text-white rounded-md p-2 w-full">
+                                <option value="" disabled>Select LLM Choice</option>
+                                {configOptions.llm_options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">Prompt Strategy</label>
+                            <select value={promptStrategy} onChange={(e) => setPromptStrategy(e.target.value)} className="bg-gray-800 text-white rounded-md p-2 w-full">
+                                <option value="" disabled>Select Prompt Strategy</option>
+                                {mode === 'FR' && configOptions.fr_strategies.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                {mode === 'NFR' && configOptions.nfr_strategies.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    )}
+                </div>
+            );
+
+            const renderFileUploader = () => (
+                <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full animate-fade-in">
+                    <button onClick={resetState} className="text-sm text-blue-400 hover:text-blue-300 mb-4">&larr; Back to start</button>
+                    <h1 className="text-3xl font-bold text-white mb-4">Process {mode === 'FR' ? 'Functional' : 'Non-Functional'} Reviews</h1>
+                    <p className="text-lg text-gray-400 mb-6">Select your model, then upload your file.</p>
+                    {renderModelOptions()}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Upload File</label>
+                        <input type="file" accept=".txt,.csv,.xls,.xlsx" onChange={handleFileChange} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-blue-300 hover:file:bg-gray-600" />
+                    </div>
+                    {renderFilePreview()}
+                    {fileType === 'text' && (
+                        <div className="bg-gray-700 p-4 rounded-lg animate-fade-in">
+                            <h3 className="text-lg font-semibold text-white mb-3">Text/CSV Parser Options</h3>
+                            <div className="flex space-x-4">
+                                <div><label className="block text-sm font-medium text-gray-300 mb-1">Delimiter</label><input type="text" value={delimiter} onChange={(e) => setDelimiter(e.target.value)} className="bg-gray-800 text-white rounded-md p-2 w-20" /></div>
+                                <div><label className="block text-sm font-medium text-gray-300 mb-1">Column Index</label><input type="number" value={columnIndex} min="1" onChange={(e) => setColumnIndex(parseInt(e.target.value, 10))} className="bg-gray-800 text-white rounded-md p-2 w-20" /></div>
+                            </div>
+                        </div>
+                    )}
+                    {fileType === 'excel' && (
+                        <div className="bg-gray-700 p-4 rounded-lg animate-fade-in">
+                            <h3 className="text-lg font-semibold text-white mb-3">Excel Parser Options</h3>
+                            {headers.length > 0 ? (
+                                <div><label className="block text-sm font-medium text-gray-300 mb-1">Select Review Column</label><select value={selectedColumn} onChange={(e) => setSelectedColumn(e.target.value)} className="bg-gray-800 text-white rounded-md p-2 w-full max-w-xs">{headers.map(header => <option key={header} value={header}>{header}</option>)}</select></div>
+                            ) : (file && renderSpinner("Parsing Excel headers..."))}
+                        </div>
+                    )}
+                    {file && (
+                        <div className="mt-8 text-right">
+                            <button onClick={handleProcessClick} disabled={ (fileType === 'excel' && !selectedColumn) || jobStatus || !llmChoice || !promptStrategy } className="bg-green-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 transition-all">
+                                {jobStatus ? "Processing..." : "Process Reviews"}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+
+            const renderProcessingView = () => {
+                const percent = (jobProgress.total > 0) ? Math.round((jobProgress.completed / jobProgress.total) * 100) : 0;
+                return (
+                    <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full animate-fade-in">
+                        <h1 className="text-3xl font-bold text-white mb-4 text-center">Processing Job #{jobId}</h1>
+                        <p className="text-lg text-gray-400 text-center mb-8">
+                            {jobStatus === 'QUEUED' && "Your job is in the queue and will start shortly..."}
+                            {jobStatus === 'RUNNING' && `Classifying with LLM... (${jobProgress.completed} / ${jobProgress.total})`}
+                            {jobStatus === 'SUBMITTING' && "Submitting job to the backend..."}
+                        </p>
+                        {(jobStatus === 'RUNNING' || jobStatus === 'COMPLETED') && (
+                            <>
+                                <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
+                                    <div className="bg-blue-600 h-4 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                                </div>
+                                <p className="text-center text-white text-xl font-semibold">{percent}%</p>
+                            </>
+                        )}
+                        {(jobStatus === 'QUEUED' || jobStatus === 'SUBMITTING') && renderSpinner("Waiting for server...")}
+                        <div className="text-center mt-8">
+                            <button onClick={handleCancelJob} className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg hover:bg-red-700 transition-all">Cancel Job</button>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderResultsView = () => (
+                <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full animate-fade-in">
+                    <h1 className="text-3xl font-bold text-white mb-6">Classification Complete</h1>
+                    <div className="max-h-[400px] overflow-y-auto bg-gray-900 p-4 rounded-lg border border-gray-700 mb-6">
+                        <table className="min-w-full divide-y divide-gray-700">
+                            <thead className="bg-gray-800 sticky top-0">
+                                <tr>
+                                    <th className="py-3 px-4 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-3/4">Review Text</th>
+                                    <th className="py-3 px-4 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-1/4">Classification</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-gray-900 divide-y divide-gray-700">
+                                {results.original.map((review, index) => (
+                                    <tr key={index}>
+                                        <td className="py-3 px-4 text-sm text-gray-300">{review}</td>
+                                        <td className="py-3 px-4 text-sm text-blue-300 font-medium">{results.classifications[index]}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                         <button onClick={resetState} className="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-blue-700 transition-all">Start Over</button>
+                         <button onClick={handleDownloadResults} className="bg-gray-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-gray-600 transition-all">Download Results</button>
+                         <button onClick={handleOpenSrsModal} disabled={!configOptions} className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-green-700 transition-all disabled:bg-gray-600">Generate SRS</button>
+                         <button onClick={handleOpenUsModal} disabled={!configOptions} className="bg-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-purple-700 transition-all disabled:bg-gray-600">Generate Stories</button>
+                    </div>
+                </div>
+            );
+
+            const renderSrsModal = () => (
+                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-lg animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-6">Generate SRS</h2>
+                        <p className="text-gray-400 mb-6">This will generate a Software Requirements Specification based on the classified reviews.</p>
+                        {!configOptions ? renderSpinner("Loading options...") : (
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">LLM Choice</label>
+                                <select value={srsLlmChoice} onChange={(e) => setSrsLlmChoice(e.target.value)} className="bg-gray-900 text-white rounded-md p-2 w-full">
+                                    <option value="" disabled>Select LLM Choice</option>
+                                    {configOptions?.llm_options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">SRS Prompt Strategy</label>
+                                <select value={srsPromptStrategy} onChange={(e) => setSrsPromptStrategy(e.target.value)} className="bg-gray-900 text-white rounded-md p-2 w-full">
+                                    <option value="" disabled>Select SRS Strategy</option>
+                                    {configOptions?.srs_strategies.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        )}
+                        <div className="flex justify-end space-x-4 mt-8">
+                            <button onClick={() => setShowSrsModal(false)} className="bg-gray-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-gray-700 transition-all">Cancel</button>
+                            <button onClick={handleSubmitSrs} disabled={!srsLlmChoice || !srsPromptStrategy || !configOptions} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 disabled:bg-gray-600 transition-all">Generate</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderUsModal = () => (
+                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-lg animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-6">Generate User Stories</h2>
+                        <p className="text-gray-400 mb-6">This will generate user stories based on the classified reviews.</p>
+                        {!configOptions ? renderSpinner("Loading options...") : (
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">LLM Choice</label>
+                                <select value={usLlmChoice} onChange={(e) => setUsLlmChoice(e.target.value)} className="bg-gray-900 text-white rounded-md p-2 w-full">
+                                    <option value="" disabled>Select LLM Choice</option>
+                                    {configOptions?.llm_options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Prompt Strategy</label>
+                                <select value={usPromptStrategy} onChange={(e) => setUsPromptStrategy(e.target.value)} className="bg-gray-900 text-white rounded-md p-2 w-full">
+                                    <option value="" disabled>Select Strategy</option>
+                                    {configOptions?.user_story_strategies.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        )}
+                        <div className="flex justify-end space-x-4 mt-8">
+                            <button onClick={() => setShowUsModal(false)} className="bg-gray-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-gray-700 transition-all">Cancel</button>
+                            <button onClick={handleSubmitUs} disabled={!usLlmChoice || !usPromptStrategy || !configOptions} className="bg-purple-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-purple-700 disabled:bg-gray-600 transition-all">Generate</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            // --- NEW: Jira Configuration Modal ---
+            const renderJiraModal = () => (
+                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md animate-fade-in">
+                        <h2 className="text-2xl font-bold text-white mb-6">Jira Configuration</h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Jira Domain</label>
+                                <input type="text" value={jiraDomain} onChange={e => setJiraDomain(e.target.value)} className="w-full bg-gray-900 text-white rounded p-2 border border-gray-700" placeholder="https://myorg.atlassian.net" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Email Address</label>
+                                <input type="text" value={jiraEmail} onChange={e => setJiraEmail(e.target.value)} className="w-full bg-gray-900 text-white rounded p-2 border border-gray-700" placeholder="user@example.com" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">API Token</label>
+                                <input type="password" value={jiraToken} onChange={e => setJiraToken(e.target.value)} className="w-full bg-gray-900 text-white rounded p-2 border border-gray-700" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Project Key</label>
+                                <input type="text" value={jiraProject} onChange={e => setJiraProject(e.target.value)} className="w-full bg-gray-900 text-white rounded p-2 border border-gray-700" placeholder="KAN" />
+                            </div>
+                        </div>
+                        <div className="flex justify-end space-x-4 mt-8">
+                            <button onClick={() => setShowJiraModal(false)} className="bg-gray-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-gray-700 transition-all">Cancel</button>
+                            <button onClick={handleSubmitJira} disabled={!jiraDomain || !jiraEmail || !jiraToken || !jiraProject} className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 disabled:bg-gray-600 transition-all">Sync</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderSrsResultView = () => {
+                const handleCopy = () => {
+                    const ta = document.createElement('textarea');
+                    ta.value = srsResult;
+                    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); log("[CLIENT] SRS copied."); } catch (err) { log("Copy failed"); }
+                    document.body.removeChild(ta);
+                };
+                const handleDownload = () => {
+                    const filename = `SRS_Report.txt`;
+                    const blob = new Blob([srsResult], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                };
+
+                return (
+                    <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full animate-fade-in">
+                        <h1 className="text-3xl font-bold text-white mb-6">Generated SRS</h1>
+                        <textarea readOnly value={srsResult} className="w-full h-96 bg-gray-900 text-gray-300 p-4 rounded-lg border border-gray-700 font-mono text-sm" />
+                        <div className="flex space-x-4 mt-6">
+                            <button onClick={handleCopy} className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition-all">Copy</button>
+                            <button onClick={handleDownload} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 transition-all">Download (.txt)</button>
+                        </div>
+                        <button onClick={() => setSrsResult(null)} className="mt-6 text-sm text-blue-400 hover:text-blue-300">&larr; Back to Results</button>
+                    </div>
+                );
+            };
+
+            const renderUsResultView = () => {
+                const selectedCount = usResult ? usResult.filter(i => i.isSelected).length : 0;
+                return (
+                    <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full animate-fade-in">
+                        <h1 className="text-3xl font-bold text-white mb-4">Generated User Stories</h1>
+                        
+                        {/* JIRA PROGRESS BAR */}
+                        {jiraJobId && (
+                            <div className="bg-blue-900 p-4 rounded mb-4 border border-blue-700 animate-fade-in">
+                                <p className="text-blue-100 font-bold mb-2">Syncing to Jira... ({jiraProgress.completed} / {jiraProgress.total})</p>
+                                <div className="w-full bg-blue-800 rounded-full h-2">
+                                    <div className="bg-blue-400 h-2 rounded-full transition-all" style={{width: `${(jiraProgress.completed/jiraProgress.total)*100}%`}}></div>
+                                </div>
+                            </div>
+                        )}
+                        {jiraStatus === 'COMPLETED' && (
+                            <div className="bg-green-800 p-4 rounded mb-4 border border-green-600 text-green-100 font-bold animate-fade-in">
+                                Sync Complete! Check your Jira Project.
+                            </div>
+                        )}
+
+                        <div className="flex justify-between items-center mb-4">
+                            <div className="flex space-x-2">
+                                <button onClick={handleUsSelectAll} className="text-xs bg-gray-700 text-blue-300 px-3 py-1 rounded-md hover:bg-gray-600">Select All</button>
+                                <button onClick={handleUsDeselectAll} className="text-xs bg-gray-700 text-blue-300 px-3 py-1 rounded-md hover:bg-gray-600">Deselect All</button>
+                            </div>
+                            <span className="text-sm text-gray-400">{selectedCount} of {usResult.length} selected</span>
+                        </div>
+                        <div className="w-full h-96 bg-gray-900 p-2 rounded-lg border border-gray-700 overflow-y-auto">
+                            {usResult.map(item => (
+                                <div key={item.id} className={`flex items-start space-x-3 p-3 rounded-lg cursor-pointer hover:bg-gray-800 ${item.isSelected ? 'bg-gray-800' : ''}`} onClick={() => handleToggleUsSelection(item.id)}>
+                                    <input type="checkbox" readOnly checked={item.isSelected} className="mt-1 h-4 w-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500" />
+                                    <p className={`text-sm ${item.isSelected ? 'text-gray-200' : 'text-gray-400'}`}>{item.story}</p>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex justify-between items-center mt-6">
+                            <button onClick={() => setUsResult(null)} className="text-sm text-blue-400 hover:text-blue-300">&larr; Back to Results</button>
+                            <button onClick={() => setShowJiraModal(true)} disabled={selectedCount === 0 || jiraJobId} className="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg hover:bg-blue-700 transition-all disabled:bg-gray-600 disabled:opacity-50">
+                                {jiraJobId ? "Syncing..." : `Send to Jira (${selectedCount})`}
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderLog = () => (
+                <div ref={logContainerRef} className="mt-6 bg-gray-900 p-4 rounded-lg shadow-inner h-48 overflow-y-auto border border-gray-700">
+                    <h4 className="text-sm font-semibold text-gray-400 mb-2">Frontend-Backend Log:</h4>
+                    {clientLog.map((msg, i) => (
+                        <p key={i} className={`text-xs font-mono ${msg.includes('ERROR') ? 'text-red-400' : 'text-gray-500'}`}>{`> ${msg}`}</p>
+                    ))}
+                </div>
+            );
+
+            const renderAppError = () => (
+                <div className="bg-red-800 border border-red-600 text-red-100 p-4 rounded-lg shadow-lg mb-4">
+                    <p className="font-bold">Error:</p>
+                    <p>{appError}</p>
+                </div>
+            );
+
+            const renderContent = () => {
+                if (usIsLoading) return renderSpinner("Generating User Stories... (This may take a minute)");
+                if (usResult) return renderUsResultView();
+                if (srsIsLoading) return renderSpinner("Generating SRS... (This may take a minute)");
+                
+                // Corrected priority logic: Show SRS results if present, overlaying normal results
+                if (srsResult) return renderSrsResultView();
+
+                if (results) return renderResultsView();
+                if (jobId) return renderProcessingView();
+                if (mode) return renderFileUploader();
+                if (!configOptions) return renderSpinner("Connecting to API server...");
+                return renderModeSelector();
+            };
+
+            return (
+                <div className="w-full">
+                    {showSrsModal && renderSrsModal()}
+                    {showUsModal && renderUsModal()}
+                    {showJiraModal && renderJiraModal()} 
+                    {appError && renderAppError()}
+                    {renderContent()}
+                    {clientLog.length > 0 && renderLog()}
+                </div>
+            );
+        }
+
+        // --- Utils (Parsing Logic) ---
+        const parseExcelPreview = (file) => new Promise((res, rej) => {
+            const r = new FileReader(); r.onload = (e) => {
+                try { const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(ws, {header:1, range:`A1:${XLSX.utils.encode_col(20)}5`});
+                res({headers: json[0]||[], preview: json.map(r=>r.map(c=>String(c===null?"":c)).join(' | '))});
+                } catch(err) { rej(err); }
+            }; r.readAsArrayBuffer(file);
+        });
+        const parseTextPreview = (file) => new Promise((res, rej) => {
+            const r = new FileReader(); r.onload = e => res(e.target.result.split('\n').slice(0,5));
+            r.readAsText(file.slice(0, 2048));
+        });
+        const parseExcelFile = (file, col) => new Promise((res, rej) => {
+             const r = new FileReader(); r.onload = (e) => {
+                 try { const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+                 let revs = [];
+                 wb.SheetNames.forEach(sn => {
+                     const json = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1});
+                     if(json.length===0) return;
+                     const idx = json[0].indexOf(col);
+                     if(idx!==-1) for(let i=1; i<json.length; i++) if(json[i][idx]) revs.push(String(json[i][idx]).trim());
+                 });
+                 if(!revs.length) rej(new Error("No reviews found")); else res(revs);
+                 } catch(err) { rej(err); }
+             }; r.readAsArrayBuffer(file);
+        });
+        const parseTextFile = (file, del, idx) => new Promise((res, rej) => {
+            const r = new FileReader(); r.onload = e => {
+                const lines = e.target.result.split('\n').filter(l=>l.trim());
+                const revs = lines.map(l=>{try{return l.split(del)[idx-1].trim()}catch{return null}}).filter(r=>r);
+                if(!revs.length) rej(new Error("No reviews found")); else res(revs);
+            }; r.readAsText(file);
+        });
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
