@@ -1,8 +1,8 @@
-# AI-Powered Review Classifier & Jira Sync
+# AI-Powered Requirements Engineering Tool for SRS Generation
 
 A modular, local-first web application that automates the analysis of user feedback. It ingests raw data, classifies it using Local LLMs (Ollama), generates structured requirements (SRS/User Stories), and synchronizes directly to Jira Cloud.
 
-## 🚀 Quick Start (Docker)
+## 🚀 Quick Start 
 
 This is the recommended way to run the application. It ensures all dependencies and databases are configured automatically.
 
@@ -41,31 +41,49 @@ Once the app is running (Step C above), follow these steps to replicate our expe
 
 ### Experiment 1: Functional Requirement (FR) Classification
 
-- **Goal:** Classify raw reviews into "Feature Request" or "Bug".
-- **Action:**
-  1. Click "Functional (FR)".
-  2. Select LLM: `mistral` (or as configured).
-  3. Select Strategy: `zero-shot`.
-  4. Upload `inputs/functional_reviews.txt`.
-  5. Click Process Reviews.
+**Goal:** Classify raw user reviews into Feature Requests or Bugs.
+
+1. **Input Data:** Locate the file `inputs/functional_reviews.txt` in this repository.
+2. **UI Action:**
+   - On the main screen, click the "Functional (FR)" button.
+   - **LLM Choice:** Select `mistral` (or your target model).
+   - **Strategy:** Select `zero-shot`.
+   - **Upload:** Drag and drop `inputs/functional_reviews.txt`.
+   - Click "Process Reviews".
+3. **Observation:** Watch the logs at the bottom of the screen. You will see the system processing reviews one by one.
+4. **Result:** A table will appear showing the raw review and the predicted label (e.g., "Bug", "Feature").
 
 ### Experiment 2: Non-Functional Requirement (NFR) Classification
 
-- **Goal:** Classify reviews into categories like Performance, Security, Usability.
-- **Action:**
-  1. Click "Non-Functional (NFR)".
-  2. Select Strategy: `role-based`.
-  3. Upload `inputs/nfr_dataset.xlsx` (Select the specific review column).
-  4. Click Process Reviews.
+**Goal:** Classify reviews into Performance, Usability, Security, etc.
 
-### Experiment 3: Jira Synchronization
+1. **Input Data:** Locate the file `inputs/nfr_dataset.xlsx` in this repository.
+2. **UI Action:**
+   - Click "Start Over" or refresh the page.
+   - Click the "Non-Functional (NFR)" button.
+   - **LLM Choice:** Select `mistral`.
+   - **Strategy:** Select `role-based`.
+   - **Upload:** Drag and drop `inputs/nfr_dataset.xlsx`.
+   - **Column Selection:** Select the column containing the review text (e.g., "Review_Text") from the dropdown.
+   - Click "Process Reviews".
+3. **Result:** The table will display NFR categories (e.g., "Performance", "Usability").
 
-- **Goal:** Convert reviews to User Stories and push to Jira.
-- **Action:**
-  1. After processing reviews, click "Generate Stories".
-  2. Select stories to sync and click "Send to Jira".
-  3. Enter credentials (API Token required) and Sync.
+### Experiment 3: User Story Generation & Jira Sync
+
+**Goal:** Convert classified reviews into agile user stories and push to Jira.
+
+1. **Prerequisite:** Complete Experiment 1 or 2 so you have classified results on screen.
+2. **Generation:**
+   - Click the "Generate Stories" button.
+   - Confirm the prompt. The system will generate a list of formatted user stories (e.g., "As a user, I want...").
+3. **Jira Sync (Optional):**
+   - Select the checkboxes for the stories you wish to sync.
+   - Click "Send to Jira".
+   - Enter your Jira credentials (Domain, Email, API Token, Project Key).
+   - **Note:** An API Token is required, not a password.
+   - Click "Sync".
+4. **Verification:** Log in to your Jira project to verify the new tickets have been created.
 
 ## 📂 Legacy / Manual Installation
 
-If you cannot use Docker and prefer to run Python scripts manually on your host machine, please refer to the [Manual Setup Guide](REPLICATION_GUIDE.md).
+If you cannot use Docker and prefer to run Python scripts manually on your host machine, please refer to the [Manual Setup Guide](docs/MANUAL_SETUP.md).
