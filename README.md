@@ -1,4 +1,4 @@
-# AI-Powered Requirements Engineering Tool for SRS Generation
+# RITA: A Tool for Automated Requirements Classification and Specification from Online User Feedback
 
 A modular, local-first web application that automates the analysis of user feedback. It ingests raw data, classifies it using Local LLMs (Ollama), generates structured requirements (SRS/User Stories), and synchronizes directly to Jira Cloud.
 
