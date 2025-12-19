@@ -39,13 +39,13 @@ Open your browser to: **http://localhost:8001/**
 
 Once the app is running (Step C above), follow these steps to replicate our experiments.
 
-### Experiment 1: Functional Requirement (FR) Classification
+### Experiment 1: User Request Type Classification
 
 **Goal:** Classify raw user reviews into Feature Requests or Bugs.
 
 1. **Input Data:** Locate the file `inputs/functional_reviews.txt` in this repository.
 2. **UI Action:**
-   - On the main screen, click the "Functional (FR)" button.
+   - On the main screen, click the "User Request Type" button.
    - **LLM Choice:** Select `mistral` (or your target model).
    - **Strategy:** Select `zero-shot`.
    - **Upload:** Drag and drop `inputs/functional_reviews.txt`.
@@ -60,7 +60,7 @@ Once the app is running (Step C above), follow these steps to replicate our expe
 1. **Input Data:** Locate the file `inputs/nfr_dataset.xlsx` in this repository.
 2. **UI Action:**
    - Click "Start Over" or refresh the page.
-   - Click the "Non-Functional (NFR)" button.
+   - Click the "Non-Functional Reviews" button.
    - **LLM Choice:** Select `mistral`.
    - **Strategy:** Select `role-based`.
    - **Upload:** Drag and drop `inputs/nfr_dataset.xlsx`.
