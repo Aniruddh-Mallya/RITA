@@ -33,7 +33,7 @@ docker-compose up --build
 
 #### Step C: Access the UI
 
-Open your browser to: **http://localhost:8001/**
+Open your browser to: **http://localhost:8002/**
 
 ## 🧪 Experiments & Usage
 
@@ -53,7 +53,7 @@ Once the app is running (Step C above), follow these steps to replicate our expe
 3. **Observation:** Watch the logs at the bottom of the screen. You will see the system processing reviews one by one.
 4. **Result:** A table will appear showing the raw review and the predicted label (e.g., "Bug", "Feature").
 
-### Experiment 2: Non-Functional Requirement (NFR) Classification
+### Experiment 2: Non-Functional Requirements Classification
 
 **Goal:** Classify reviews into Performance, Usability, Security, etc.
 
