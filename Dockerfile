@@ -1,20 +1,25 @@
-# 1. Use an official lightweight Python image
+# 1. Use the official lightweight Python image
 FROM python:3.11-slim
 
-# 2. Prevent Python from buffering stdout/stderr (Crucial for seeing logs in Docker)
+# 2. Prevent Python from buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
 
-# 3. Set the working directory inside the container
+# 3. Set the working directory
 WORKDIR /app
 
-# 4. Copy the requirements file first (for caching efficiency)
+# 4. Install dependencies
+# Note: Ensure 'requests' is in your requirements.txt for the Jira client
 COPY requirements.txt .
-
-# 5. Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy the rest of the application code
+# 5. Copy all application code
+# This includes api.py, worker.py, review_classifier.html, and the modules/ folder
 COPY . .
 
-# 7. Default command (will be overridden by Docker Compose)
-CMD ["python", "api.py"]
+# 6. Expose the API port
+EXPOSE 8002
+
+# 7. Start BOTH services in a single line
+# We launch worker.py in the background (&) and uvicorn in the foreground.
+# If the container stops, both processes are terminated and restarted together.
+CMD ["sh", "-c", "python worker.py & uvicorn api:app --host 0.0.0.0 --port 8002"]

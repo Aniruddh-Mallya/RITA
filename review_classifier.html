@@ -3,15 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Review Classifier (Pro UI + Jira)</title>
-    <!-- 1. Tailwind CSS -->
+    <title>Review Classifier (Unified UI)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 2. React & ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- 3. Babel (for JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 4. SheetJS (Excel Parser) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <style>
@@ -34,27 +30,26 @@
 </head>
 <body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen font-sans">
 
-    <!-- The React App Mount Point -->
     <div id="root" class="w-full max-w-4xl p-4"></div>
 
-    <!-- The React App (in Babel) -->
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
         // --- API Constants ---
-        const API_BASE_URL = "http://localhost:8001";
+        const API_BASE_URL = "http://localhost:8002";
         const SUBMIT_JOB_URL = `${API_BASE_URL}/submit_job`;
         const CHECK_STATUS_URL = `${API_BASE_URL}/check_status`;
         const CANCEL_JOB_URL = `${API_BASE_URL}/cancel_job`;
         const CONFIG_OPTIONS_URL = `${API_BASE_URL}/config_options`;
         const GENERATE_SRS_URL = `${API_BASE_URL}/generate_srs`;
         const GENERATE_USER_STORIES_URL = `${API_BASE_URL}/generate_user_stories`;
-        const SYNC_JIRA_URL = `${API_BASE_URL}/sync_jira`; // NEW CONSTANT
+        const SYNC_JIRA_URL = `${API_BASE_URL}/sync_jira`;
 
         // --- Main App Component ---
         function App() {
             // State for the entire app's workflow
-            const [mode, setMode] = useState(null); // 'FR' or 'NFR'
+            // CHANGED: Default mode is now 'FR' instead of null to skip the landing page
+            const [mode, setMode] = useState('FR'); 
             
             const [llmChoice, setLlmChoice] = useState('');
             const [promptStrategy, setPromptStrategy] = useState('');
@@ -88,7 +83,7 @@
             const [srsLlmChoice, setSrsLlmChoice] = useState('');
             const [srsPromptStrategy, setSrsPromptStrategy] = useState('');
             const [srsIsLoading, setSrsIsLoading] = useState(false);
-            const [srsResult, setSrsResult] = useState(null); // Stores the final SRS text
+            const [srsResult, setSrsResult] = useState(null); 
             const [srsJobId, setSrsJobId] = useState(null);
 
             // State for the User Story Modal and Results
@@ -96,10 +91,10 @@
             const [usLlmChoice, setUsLlmChoice] = useState('');
             const [usPromptStrategy, setUsPromptStrategy] = useState('');
             const [usIsLoading, setUsIsLoading] = useState(false);
-            const [usResult, setUsResult] = useState(null); // Stores an array of story objects
+            const [usResult, setUsResult] = useState(null); 
             const [usJobId, setUsJobId] = useState(null);
 
-            // --- NEW: Jira State ---
+            // --- Jira State ---
             const [showJiraModal, setShowJiraModal] = useState(false);
             const [jiraDomain, setJiraDomain] = useState('');
             const [jiraEmail, setJiraEmail] = useState('');
@@ -156,7 +151,7 @@
                 setAppError(null);
                 setHeaders([]);
                 setSelectedColumn('');
-                setFilePreview(null); // Clear previous preview
+                setFilePreview(null); 
 
                 const fileExt = selectedFile.name.split('.').pop().toLowerCase();
                 
@@ -274,13 +269,13 @@
 
             // Step 5: Reset the entire app
             const resetState = () => {
-                setMode(null);
+                setMode('FR'); // CHANGED: Reset to Default FR
                 setLlmChoice('');
                 setPromptStrategy('');
                 setFile(null);
                 setFileType(null);
                 setHeaders([]);
-                setFilePreview(null); // Clear previous preview
+                setFilePreview(null); 
                 setSelectedColumn('');
                 setDelimiter(',');
                 setColumnIndex(1);
@@ -291,21 +286,20 @@
                 setAppError(null);
                 setClientLog([]);
                 
-                // Reset SRS state
                 setShowSrsModal(false);
                 setSrsLlmChoice('');
                 setSrsPromptStrategy('');
                 setSrsIsLoading(false);
                 setSrsResult(null);
                 setSrsJobId(null);
-                // Reset User Story state
+
                 setShowUsModal(false);
                 setUsLlmChoice('');
                 setUsPromptStrategy('');
                 setUsIsLoading(false);
                 setUsResult(null);
                 setUsJobId(null);
-                // Reset Jira
+
                 setShowJiraModal(false);
                 setJiraJobId(null);
             };
@@ -331,9 +325,10 @@
             };
 
 
-            // --- Polling Effect (Main Classification) ---
+            // --- Polling Effects ---
+            
+            // Classification Polling
             useEffect(() => {
-                // Keep polling until COMPLETED and results are set, or FAILED
                 if (!jobId || (jobStatus === 'COMPLETED' && results) || jobStatus === 'FAILED') {
                     return;
                 }
@@ -350,10 +345,8 @@
                         const data = await response.json();
 
                         setJobStatus(data.status);
-                        // Update progress regardless of status (e.g., if it jumps from QUEUED to COMPLETED quickly)
                         setJobProgress({ completed: data.completed, total: data.total });
                         
-                        // LOGGING FIX: Log progress if count increased
                         if (data.completed > jobProgress.completed) {
                              log(`[CLIENT] Processed review ${data.completed} of ${data.total}`);
                         }
@@ -371,13 +364,13 @@
                     } catch (err) {
                         log(`[CLIENT-ERROR] Status check failed: ${err.message}`);
                     }
-                }, 500); // CHANGE: Reduced to 500ms for smoother updates
+                }, 500); 
 
                 return () => clearInterval(intervalId);
-            }, [jobId, jobStatus, results, jobProgress.completed]); // Added jobProgress.completed to dependency array
+            }, [jobId, jobStatus, results, jobProgress.completed]); 
 
             
-            // --- Polling Effect for SRS ---
+            // SRS Polling
             useEffect(() => {
                 if (!srsJobId) return;
 
@@ -405,7 +398,7 @@
             }, [srsJobId]);
 
 
-            // --- Polling Effect for User Stories ---
+            // User Story Polling
             useEffect(() => {
                 if (!usJobId) return;
 
@@ -432,7 +425,7 @@
                 return () => clearInterval(intervalId);
             }, [usJobId]);
 
-            // --- NEW: Polling Effect for Jira ---
+            // Jira Polling
             useEffect(() => {
                 if (!jiraJobId) return;
                 const intervalId = setInterval(async () => {
@@ -445,7 +438,6 @@
                             log(`[CLIENT] Jira Sync Finished.`);
                             setJiraStatus('COMPLETED');
                             setJiraJobId(null);
-                            // Reset status message after 3s
                             setTimeout(() => setJiraStatus(null), 3000);
                         } else if (data.status === 'FAILED') {
                             setAppError("Jira Sync Failed.");
@@ -459,7 +451,7 @@
             }, [jiraJobId]);
 
 
-            // --- SRS Handlers ---
+            // --- Handlers ---
             const handleOpenSrsModal = () => {
                 if (!configOptions) return;
                 setSrsLlmChoice(llmChoice); 
@@ -504,7 +496,6 @@
                 }
             };
             
-            // --- User Story Handlers ---
             const handleOpenUsModal = () => {
                 if (!configOptions) return;
                 setUsLlmChoice(llmChoice);
@@ -550,7 +541,6 @@
                 }
             };
             
-            // --- NEW: Jira Handlers ---
             const handleSubmitJira = async () => {
                 const selectedStories = usResult.filter(i => i.isSelected).map(i => i.story);
                 if (selectedStories.length === 0) return;
@@ -633,23 +623,6 @@
                 );
             };
 
-            const renderModeSelector = () => (
-                <div className="bg-gray-800 p-8 rounded-lg shadow-xl animate-fade-in">
-                    <h1 className="text-3xl font-bold text-center text-white mb-6">Requirement Classifier</h1>
-                    <p className="text-lg text-gray-400 text-center mb-8">What type of requirements are you processing today?</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <button onClick={() => setMode('FR')} className="p-8 bg-blue-600 text-white rounded-lg shadow-lg hover:bg-blue-700 transition-all transform hover:scale-105">
-                            <h2 className="text-2xl font-semibold mb-2">Functional (FR)</h2>
-                            <p className="text-blue-100">e.g., "Add a save button"</p>
-                        </button>
-                        <button onClick={() => setMode('NFR')} className="p-8 bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition-all transform hover:scale-105">
-                            <h2 className="text-2xl font-semibold mb-2">Non-Functional (NFR)</h2>
-                            <p className="text-green-100">e.g., "The app is too slow"</p>
-                        </button>
-                    </div>
-                </div>
-            );
-
             const renderModelOptions = () => (
                 <div className="bg-gray-700 p-4 rounded-lg mb-6 animate-fade-in">
                     <h3 className="text-lg font-semibold text-white mb-3">Model Configuration</h3>
@@ -675,12 +648,26 @@
                 </div>
             );
 
-            const renderFileUploader = () => (
+            // CHANGED: Unified Configuration Panel
+            const renderConfigurationPanel = () => (
                 <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full animate-fade-in">
-                    <button onClick={resetState} className="text-sm text-blue-400 hover:text-blue-300 mb-4">&larr; Back to start</button>
-                    <h1 className="text-3xl font-bold text-white mb-4">Process {mode === 'FR' ? 'Functional' : 'Non-Functional'} Reviews</h1>
-                    <p className="text-lg text-gray-400 mb-6">Select your model, then upload your file.</p>
+                    <h1 className="text-3xl font-bold text-white mb-6">Requirement Classifier</h1>
+                    
+                    {/* Mode Selector Section */}
+                    <div className="bg-gray-700 p-4 rounded-lg mb-6 animate-fade-in">
+                        <h3 className="text-lg font-semibold text-white mb-3">Requirement Type</h3>
+                        <div className="flex space-x-4">
+                            <button onClick={() => setMode('FR')} className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all ${mode === 'FR' ? 'border-blue-500 bg-blue-900 text-white shadow-lg' : 'border-gray-600 bg-gray-800 text-gray-400 hover:bg-gray-600'}`}>
+                                <div className="font-bold text-lg">User Request Type</div>
+                            </button>
+                            <button onClick={() => setMode('NFR')} className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all ${mode === 'NFR' ? 'border-green-500 bg-green-900 text-white shadow-lg' : 'border-gray-600 bg-gray-800 text-gray-400 hover:bg-gray-600'}`}>
+                                <div className="font-bold text-lg">Non-Functional Reviews</div>
+                            </button>
+                        </div>
+                    </div>
+
                     {renderModelOptions()}
+                    
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-gray-300 mb-2">Upload File</label>
                         <input type="file" accept=".txt,.csv,.xls,.xlsx" onChange={handleFileChange} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-blue-300 hover:file:bg-gray-600" />
@@ -831,7 +818,6 @@
                 </div>
             );
 
-            // --- NEW: Jira Configuration Modal ---
             const renderJiraModal = () => (
                 <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md animate-fade-in">
@@ -962,14 +948,14 @@
                 if (usResult) return renderUsResultView();
                 if (srsIsLoading) return renderSpinner("Generating SRS... (This may take a minute)");
                 
-                // Corrected priority logic: Show SRS results if present, overlaying normal results
                 if (srsResult) return renderSrsResultView();
 
                 if (results) return renderResultsView();
                 if (jobId) return renderProcessingView();
-                if (mode) return renderFileUploader();
+                
+                // CHANGED: Default view is now the unified configuration panel
                 if (!configOptions) return renderSpinner("Connecting to API server...");
-                return renderModeSelector();
+                return renderConfigurationPanel();
             };
 
             return (

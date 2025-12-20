@@ -10,6 +10,7 @@ from typing import List, Optional
 from database import SessionLocal, Job, init_db
 from modules.config_manager import config_manager
 
+
 # --- Models ---
 class SubmitJobRequest(BaseModel):
     reviews: List[str]
@@ -111,5 +112,5 @@ async def check_status(job_id: int):
     return {"job_id": job.id, "status": job.status, "completed": job.completed_reviews, "total": job.total_reviews, "original_reviews": orig, "results": res}
 
 if __name__ == "__main__":
-    print("Starting Server on http://localhost:8001")
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    print("Starting Server on http://localhost:8002")
+    uvicorn.run(app, host="0.0.0.0", port=8002)

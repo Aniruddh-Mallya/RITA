@@ -1,41 +1,17 @@
+version: '3.8'
+
 services:
-  # --- The Waiter (API) ---
-  api:
+  # --- The Unified App ---
+  # This container now acts as both the Rabbit (API) and the Tortoise (Worker)
+  app:
     build: .
-    container_name: review_classifier_api
-    # Command to run the API server
-    command: uvicorn api:app --host 0.0.0.0 --port 8001
+    container_name: requirements_tool_unified
     ports:
-      - "8001:8001"
-    volumes:
-      # The "Safe" for data persistence (Named Volume)
-      - app_data:/app
+      - "8002:8002" # API access
+      - "3000:8002" # Alias for your existing frontend links
     environment:
-      # The "Tunnel" to your local Ollama
-      - OLLAMA_HOST=http://host.docker.internal:11434
-    extra_hosts:
-      # The definition of the host gateway
-      - "host.docker.internal:host-gateway"
-    restart: always
-
-  # --- The Cook (Worker) ---
-  worker:
-    build: .
-    container_name: review_classifier_worker
-    # Command to run the background worker
-    command: python worker.py
-    volumes:
-      # Uses the SAME "Safe" as the API
-      - app_data:/app
-    environment:
-      # Worker also needs the tunnel to Ollama
+      # Access local Ollama via the Docker gateway
       - OLLAMA_HOST=http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      - api
     restart: always
-
-# Define the "Safe" (Named Volume)
-volumes:
-  app_data:
