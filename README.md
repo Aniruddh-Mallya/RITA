@@ -70,19 +70,33 @@ Once the app is running (Step C above), follow these steps to replicate our expe
 
 ### Experiment 3: User Story Generation & Jira Sync
 
-**Goal:** Convert classified reviews into agile user stories and push to Jira.
+**Goal:** Convert classified reviews into agile user stories and optionally export them to Jira Cloud.
 
-1. **Prerequisite:** Complete Experiment 1 or 2 so you have classified results on screen.
-2. **Generation:**
-   - Click the "Generate Stories" button.
-   - Confirm the prompt. The system will generate a list of formatted user stories (e.g., "As a user, I want...").
+1. **Prerequisite:**  
+   Complete **Experiment 1** or **Experiment 2** so that classified results are displayed in the interface.
+
+2. **User Story Generation:**
+   - Click the **Generate Stories** button.
+   - Confirm the prompt when requested.
+   - The system generates a list of structured user stories (e.g., *“As a user, I want…”*) based on the classified feedback.
+
 3. **Jira Sync (Optional):**
-   - Select the checkboxes for the stories you wish to sync.
-   - Click "Send to Jira".
-   - Enter your Jira credentials (Domain, Email, API Token, Project Key).
-   - **Note:** An API Token is required, not a password.
-   - Click "Sync".
-4. **Verification:** Log in to your Jira project to verify the new tickets have been created.
+   - Select the checkboxes for the user stories you wish to export.
+   - Click **Send to Jira**.
+   - Enter the required Jira details:
+     - **Jira Domain** (e.g., `example.atlassian.net`)
+     - **Email** (your Jira account email)
+     - **API Token**
+     - **Project Key** (e.g., `RITA`)
+   - Click **Sync**.
+
+   **Note:** Jira requires an API token for authentication; passwords are not supported.
+
+4. **Verification:**
+   - Log in to your Jira Cloud account.
+   - Open the specified project.
+   - Verify that the selected user stories have been created as **Story** issues in the backlog or board view.
+
 
 ## 📂 Legacy / Manual Installation
 
